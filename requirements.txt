@@ -25,5 +25,9 @@ scikit-learn>=1.3.0
 pandas>=2.1.0
 joblib>=1.3.0
 
+azure-ai-textanalytics
+azure-ai-contentsafety
+azure-core
+
 
 
