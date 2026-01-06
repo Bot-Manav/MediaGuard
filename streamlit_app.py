@@ -18,6 +18,7 @@ from modules.verification import VerificationEngine
 from modules.dashboard import ResultDashboard
 from modules.fake_news_detection import FakeNewsDetectionEngine
 from modules.trust_aggregator import TrustAggregator
+from modules.content_safety_engine import ContentSafetyEngine
 
 # Page configuration
 st.set_page_config(
@@ -71,6 +72,9 @@ st.markdown("""
 
 
 def initialize_session_state():
+    if 'content_safety_result' not in st.session_state:
+        st.session_state.content_safety_result = None
+
     """Initialize session state variables"""
     if 'analysis_result' not in st.session_state:
         st.session_state.analysis_result = None
@@ -180,6 +184,32 @@ def display_multi_modal_results(analysis_result, fake_news_result, trust_aggrega
                         st.markdown(f"- {signal}")
         else:
             st.info("Fake news analysis not performed")
+
+    # Microsoft Azure Content Safety display (if available)
+    try:
+        cs_present = False
+        if trust_aggregation and trust_aggregation.get('module_results', {}).get('sensitive'):
+            cs_present = bool(st.session_state.get('content_safety_result'))
+
+        if cs_present:
+            cs = st.session_state.get('content_safety_result') or {}
+            st.markdown("---")
+            st.markdown("### 🛡️ Microsoft AI – Azure Content Safety")
+            risk_score = cs.get('risk_score', 0.0)
+            max_severity = cs.get('max_severity', 0)
+            st.markdown(f"**Risk Score:** {risk_score:.1f}%  |  **Max Severity:** {max_severity}")
+
+            categories = cs.get('categories', {}) or {}
+            if categories:
+                for cat, meta in categories.items():
+                    severity = meta.get('severity', 0)
+                    confidence = meta.get('confidence', 0.0)
+                    st.markdown(f"- **{cat}**: Severity {severity}, Confidence {confidence:.1f}%")
+            else:
+                st.info("No content categories returned by Azure Content Safety")
+    except Exception:
+        # Never allow display errors to break the UI
+        pass
     
     # Detailed Breakdown
     if trust_aggregation:
@@ -418,6 +448,17 @@ def render_upload_analyze_tab(persona: str):
                             fake_news_result = fake_news_engine.analyze_multiple_sources(texts_to_analyze)
                         else:
                             st.warning("⚠️ No text provided for fake news analysis. Please enter text above.")
+
+                    # NEW: Microsoft Azure Content Safety (Independent) - analyze combined text
+                    content_safety_result = None
+                    combined_text = None
+                    if news_headline or caption_description:
+                        combined_text = " ".join(filter(None, [news_headline, caption_description]))
+                        try:
+                            cs_engine = ContentSafetyEngine()
+                            content_safety_result = cs_engine.analyze(combined_text)
+                        except Exception:
+                            content_safety_result = None
                     
                     # Module 4: Blockchain Registration (if requested)
                     blockchain_record = None
@@ -431,17 +472,18 @@ def render_upload_analyze_tab(persona: str):
                     
                     # NEW: Trust & Risk Aggregator (Combines all module results)
                     trust_aggregation = None
-                    if analysis_result or fake_news_result:
+                    if analysis_result or fake_news_result or content_safety_result:
                         aggregator = TrustAggregator()
                         trust_aggregation = aggregator.aggregate(
                             image_analysis=analysis_result,
                             fake_news_analysis=fake_news_result,
-                            sensitive_content=analysis_result if analysis_result and analysis_result.get('classification') == 'sensitive' else None
+                            sensitive_content=content_safety_result if content_safety_result else (analysis_result if analysis_result and analysis_result.get('classification') == 'sensitive' else None)
                         )
                     
                     # Store results in session state
                     st.session_state.analysis_result = analysis_result
                     st.session_state.fake_news_result = fake_news_result
+                    st.session_state.content_safety_result = content_safety_result
                     st.session_state.trust_aggregation = trust_aggregation
                     st.session_state.fingerprint_data = fingerprint_data
                     st.session_state.blockchain_record = blockchain_record
@@ -616,4 +658,3 @@ def render_dashboard_tab():
 
 if __name__ == "__main__":
     main()
-
